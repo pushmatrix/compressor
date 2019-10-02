@@ -585,7 +585,7 @@ module.exports = class Viewer {
     var availableResolutions = {}
     var resolutions = [128, 256, 512, 1024, 2048, 4096];
     for (var i = 0; i < resolutions.length; i++) {
-      if (resolutions[i] <= this.state.resolution) {
+      if (resolutions[i] <= this.textures[uuid].originalResolution) {
         availableResolutions[resolutions[i]] = resolutions[i];
       }
     }
@@ -672,7 +672,7 @@ module.exports = class Viewer {
       this.materialDropdownOptions[material.name] = material.name;
       MAP_NAMES.forEach( (map) => {
        if (material[ map ]) {
-         this.textures[material[map].uuid] = { textureReference: material[map], quality: 1, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees' };
+         this.textures[material[map].uuid] = { textureReference: material[map], quality: 1, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees' };
          var mapName = map;
          if (map == "aoMap" || map == "roughnessMap" || map == "metalnessMap") {
            mapName = "ao / m / r"
