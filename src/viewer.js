@@ -5,6 +5,7 @@ const environments = require('../assets/environment/index');
 const createVignetteBackground = require('three-vignette-background');
 
 require('three/examples/js/loaders/GLTFLoader');
+require('../lib/GLTFExporter');
 require('three/examples/js/loaders/DRACOLoader');
 require('three/examples/js/loaders/DDSLoader');
 require('three/examples/js/controls/OrbitControls');
@@ -46,6 +47,13 @@ module.exports = class Viewer {
     this.clips = [];
     this.gui = null;
 
+    this.originalTextureFilesize = 0;
+    this.originalTotalTextureFilesize = 0;
+    this.originalTextureFilesizes = {};
+    this.mapCache = {};
+    this.newTextureFilesizes = {};
+    this.originalFilesize = 0;
+
     this.state = {
       environment: options.preset === Preset.ASSET_GENERATOR
         ? 'Footprint Court (HDR)'
@@ -57,6 +65,17 @@ module.exports = class Viewer {
       wireframe: false,
       skeleton: false,
       grid: false,
+      material: null,
+      texture: null,
+      quality: 1,
+      compressTexture: false,
+      imageFormat: null,
+      resolution: 2048,
+      originalTextureFilesize: "",
+      newTextureFilesize: "",
+
+      originalFilesize: "",
+      newFilesize: "",
 
       // Lights
       addLights: true,
@@ -69,6 +88,9 @@ module.exports = class Viewer {
       bgColor1: '#ffffff',
       bgColor2: '#353535'
     };
+
+    this.materials = {};
+    this.textures = {};
 
     this.prevTime = 0;
 
@@ -85,13 +107,50 @@ module.exports = class Viewer {
     this.activeCamera = this.defaultCamera;
     this.scene.add( this.defaultCamera );
 
-    this.renderer = window.renderer = new THREE.WebGLRenderer({antialias: true});
+
+    this.canvas = document.getElementById("viewer-canvas");
+    this.wrapper = document.getElementById("3d-view");
+    this.renderer = window.renderer = new THREE.WebGLRenderer({antialias: true, canvas: this.canvas});
     this.renderer.physicallyCorrectLights = true;
     this.renderer.gammaOutput = true;
     this.renderer.gammaFactor = 2.2;
     this.renderer.setClearColor( 0xcccccc );
     this.renderer.setPixelRatio( window.devicePixelRatio );
-    this.renderer.setSize( el.clientWidth, el.clientHeight );
+    this.renderer.setSize( this.wrapper.clientWidth, this.wrapper.clientHeight );
+
+
+
+    var compare = (on) => {
+      document.getElementById("original-texture").style.opacity = on ? 1 : 0;
+
+      this.originalObject.visible = on;
+      this.content.visible = !on;
+    }
+
+    document.body.onkeyup = function(e){
+      if(e.keyCode == 67){
+        compare(false);
+      }
+    }
+
+    document.body.onkeydown = function(e){
+      if(e.keyCode == 67){
+        compare(true);
+      }
+    }
+
+
+
+
+    document.getElementById("compare-btn").addEventListener('mousedown', () => {
+      compare(true);
+    });
+
+    document.getElementById("compare-btn").addEventListener('mouseup', () => {
+      compare(false);
+    });
+
+    this.defaultCamera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
 
     this.controls = new THREE.OrbitControls( this.defaultCamera, this.renderer.domElement );
     this.controls.autoRotate = false;
@@ -104,7 +163,6 @@ module.exports = class Viewer {
       colors: [this.state.bgColor1, this.state.bgColor2]
     });
 
-    this.el.appendChild(this.renderer.domElement);
 
     this.cameraCtrl = null;
     this.cameraFolder = null;
@@ -146,19 +204,48 @@ module.exports = class Viewer {
   }
 
   resize () {
-
-    const {clientHeight, clientWidth} = this.el.parentElement;
+    const {clientHeight, clientWidth} = this.wrapper;
 
     this.defaultCamera.aspect = clientWidth / clientHeight;
     this.defaultCamera.updateProjectionMatrix();
     this.background.style({aspect: this.defaultCamera.aspect});
     this.renderer.setSize(clientWidth, clientHeight);
+  }
 
+  extractTextures(material) {
+    console.log(material);
   }
 
   load ( url, rootPath, assetMap ) {
+    document.activeElement.blur()
 
     const baseURL = THREE.LoaderUtils.extractUrlBase(url);
+    
+    window.originalFiles = {};
+
+    this.originalTextureFilesize = 0;
+    this.originalTotalTextureFilesize = 0;
+    this.originalTextureFilesizes = {};
+    this.newTextureFilesizes = {};
+    this.mapCache = {};
+    this.originalFilesize = 0;
+
+    Array.from(assetMap).forEach(([path, file]) => {
+      this.originalFilesize += file.size;
+
+      var paths = path.split("/");
+      var baseName = paths[paths.length - 1].split(".")[0];
+
+      window.originalFiles[baseName] = file;
+      if (file.type == "image/png" || file.type == "image/jpeg") {
+        this.originalTotalTextureFilesize += file.size;
+        this.originalTextureFilesizes[baseName] = file.size;
+      }
+     //file.arrayBuffer().then(buffer => window.fileBuffers[baseName] = buffer);
+    });
+
+    this.state.originalFilesize = (this.originalFilesize / 1000/ 1000).toFixed(2) + " MB";
+
 
     // Load.
     return new Promise((resolve, reject) => {
@@ -183,23 +270,58 @@ module.exports = class Viewer {
 
       });
 
+      var _self = this;
+
+      var loadCopy = () => { 
+        
+        loader.load(url, (gltf) => {
+
+          const scene = gltf.scene || gltf.scenes[0];
+          const clips = gltf.animations || [];
+
+          //gltf.scenes[0].children[0].children[0].rotateY(Math.PI /2);
+         // gltf.scenes[0].children[0].children[1].rotateY(Math.PI /2);
+       //   var pivot = new THREE.Group();
+        //  pivot.rotateY(Math.PI/2);
+         // pivot.rotateZ(0.04);
+        //  pivot.position.y = 0.5;
+         // pivot.add(scene)
+         // this.setContent(pivot, clips);
+         this.setContent(scene, clips);
+          blobURLs.forEach(URL.revokeObjectURL);
+
+          
+
+          resolve(gltf);
+
+        }, undefined, reject);
+      }
+
       const loader = new THREE.GLTFLoader(manager);
       loader.setCrossOrigin('anonymous');
       loader.setDRACOLoader( new THREE.DRACOLoader() );
       const blobURLs = [];
 
+      _self = this;
+
       loader.load(url, (gltf) => {
 
         const scene = gltf.scene || gltf.scenes[0];
         const clips = gltf.animations || [];
-        this.setContent(scene, clips);
 
+        this.originalObject = scene;
+        this.originalObject.visible = false;
+        this.scene.add(scene);
         blobURLs.forEach(URL.revokeObjectURL);
-
-        // See: https://github.com/google/draco/issues/349
-        // THREE.DRACOLoader.releaseDecoderModule();
-
-        resolve(gltf);
+        _self.originalTextureFilesizes = Object.assign({}, _self.originalTextureFilesizes, gltf.fileSizes);
+        _self.newTextureFilesizes = Object.assign ({},_self.originalTextureFilesizes);
+        window.originalFiles = Object.assign({}, window.originalFiles, gltf.fileBuffers);
+        if (this.originalTotalTextureFilesize == 0) {
+          for (const [key, value] of Object.entries(gltf.fileSizes)) {
+            this.originalTotalTextureFilesize += value;
+          }
+        }
+        loadCopy();
 
       }, undefined, reject);
 
@@ -237,9 +359,9 @@ module.exports = class Viewer {
     } else {
 
       this.defaultCamera.position.copy(center);
-      this.defaultCamera.position.x += size / 2.0;
-      this.defaultCamera.position.y += size / 5.0;
-      this.defaultCamera.position.z += size / 2.0;
+      this.defaultCamera.position.x = 0;
+      this.defaultCamera.position.y = 0;
+      this.defaultCamera.position.z = size;
       this.defaultCamera.lookAt(center);
 
     }
@@ -249,6 +371,9 @@ module.exports = class Viewer {
     this.controls.saveState();
 
     this.scene.add(object);
+
+    this.originalObject.position.set(object.position.x, object.position.y, object.position.z);
+
     this.content = object;
 
     this.state.addLights = true;
@@ -265,6 +390,7 @@ module.exports = class Viewer {
     this.updateEnvironment();
     this.updateTextureEncoding();
     this.updateDisplay();
+    this.updateTextures();
 
     window.content = this.content;
     console.info('[glTF Viewer] THREE.Scene exported as `window.content`.');
@@ -400,6 +526,13 @@ module.exports = class Viewer {
         }
       });
 
+      traverseMaterials(this.originalObject, (material) => {
+        if (material.isMeshStandardMaterial || material.isGLTFSpecularGlossinessMaterial) {
+          material.envMap = envMap;
+          material.needsUpdate = true;
+        }
+      });
+
       this.scene.background = this.state.background ? cubeMap : null;
 
     });
@@ -449,6 +582,15 @@ module.exports = class Viewer {
 
   }
 
+  updateTotalFilesize() {
+    var textureFilesize = 0;
+    for (const [key, value] of Object.entries(this.newTextureFilesizes)) {
+      textureFilesize += value;
+    }
+
+    this.state.newFilesize = ((textureFilesize + this.originalFilesize - this.originalTotalTextureFilesize) / 1000 / 1000).toFixed(2) + " MB";
+  }
+
   updateDisplay () {
     if (this.skeletonHelpers.length) {
       this.skeletonHelpers.forEach((helper) => this.scene.remove(helper));
@@ -484,6 +626,187 @@ module.exports = class Viewer {
     }
   }
 
+  selectTexture(name) {
+    this.state.quality = this.textures[name].quality;
+    this.state.imageFormat = this.textures[name].imageFormat;
+    this.state.resolution = this.textures[name].resolution;
+    this.state.compressTexture = this.textures[name].compressTexture;
+    this.state.originalTextureFilesize = '2 MB';
+
+
+
+    if (this.textures[name].sourceImage == null) {
+      this.textures[name].sourceImage = extractImageDataToCanvas(this.textures[name].textureReference.image);
+    }
+
+    var o = document.getElementById('original-texture');
+    o.src = this.textures[name].sourceImage.toDataURL();
+
+
+    var availableResolutions = {}
+    var resolutions = [128, 256, 512, 1024, 2048, 4096];
+    for (var i = 0; i < resolutions.length; i++) {
+      if (resolutions[i] <= this.textures[name].originalResolution) {
+        availableResolutions[resolutions[i]] = resolutions[i];
+      }
+    }
+
+    this.updateDropdown(this.resolutionDropdown, availableResolutions);
+
+    this.toggleCompression(this.state.compressTexture);
+    this.updateTexture(name, this.state.quality, this.state.resolution, this.state.imageFormat, this.state.compressTexture);
+  }
+
+
+  updateTexture(name, quality, resolution, format, compressTexture) {
+    this.state.quality = this.textures[name].quality = quality;
+    this.state.resolution = this.textures[name].resolution = resolution;
+    this.state.imageFormat = this.textures[name].imageFormat = format;
+    this.state.compressTexture = this.textures[name].compressTexture = compressTexture;
+
+    this.currentMap = name;
+    var v = document.getElementById('current-texture');
+    var newSrc = downscaleCanvas(this.textures[name].sourceImage, resolution, format, quality);
+
+    this.state.originalTextureFilesize = (this.originalTextureFilesizes[this.textures[name].textureReference.name]/ 1000 / 1000).toFixed(3) + " MB";
+
+    this.state.newTextureFilesize = (Math.round(newSrc.length * 1) / 1000 / 1000 * 3 / 4).toFixed(3) + " MB";
+
+    this.textures[name].textureReference.image.src = newSrc;
+
+    // Store the format so when we are exporting we can know what format it is.
+    this.textures[name].textureReference.image.format = format;
+    this.textures[name].textureReference.image.quality = quality;
+    this.textures[name].textureReference.image.compressTexture = compressTexture;
+    this.textures[name].textureReference.needsUpdate = true;
+
+
+    this.newTextureFilesize.domElement.parentNode.style.display = this.state.compressTexture ? 'inherit' : 'none';
+
+    if (this.state.compressTexture) {
+      v.src = newSrc;
+      this.newTextureFilesizes[this.textures[name].textureReference.name] = newSrc.length * 3 / 4;
+    } else {
+      v.src = document.getElementById('original-texture').src;
+      this.textures[name].textureReference.image.src = v.src;
+      this.newTextureFilesizes[this.textures[name].textureReference.name] = this.originalTextureFilesizes[this.textures[name].textureReference.name];
+    }
+    
+    this.updateTotalFilesize();
+
+  }
+
+  selectMaterial(name) {
+    this.state.material = name;
+    var material = this.materials[name];
+
+
+    var firstTexture = this.textureDropdownOptions[name][Object.keys(this.textureDropdownOptions[name])[0]];
+
+    this.state.texture = firstTexture;
+
+    this.updateDropdown(this.textureDropdown, this.textureDropdownOptions[name]);
+
+    this.selectTexture(firstTexture);
+  }
+
+  updateDropdown(target, list){   
+
+    var innerHTMLStr = "";
+    for(var i=0; i<Object.keys(list).length; i++){
+        var str = "<option value='" + list[Object.keys(list)[i]] + "'>" + Object.keys(list)[i] + "</option>";
+        innerHTMLStr += str;        
+    }
+
+    if (innerHTMLStr != "") target.domElement.children[0].innerHTML = innerHTMLStr;
+  }
+
+  export() {
+    var content = this.content;
+    var exporter = new THREE.GLTFExporter();
+    setTimeout(function(){
+      exporter.parse( content, function ( gltf ) {
+        saveArrayBuffer( gltf, 'scene.glb' );
+      }, {binary: true} );
+    }, 1000);
+  }
+
+
+  updateTextures() {
+
+    var textureView = document.getElementById('texture-view');
+
+    var fc = textureView.firstChild;
+
+    while( fc ) {
+        textureView.removeChild( fc );
+        fc = textureView.firstChild;
+    }
+
+    var img = new Image();
+    img.id = 'current-texture';
+    document.getElementById('texture-view').appendChild(img);
+
+    var originalImg = new Image();
+    originalImg.id = 'original-texture';
+    document.getElementById('texture-view').appendChild(originalImg);
+
+    this.textureDropdownOptions = {};
+    this.materialDropdownOptions = {};
+    traverseMaterials(this.content, (material) => {
+      this.materials[material.name] = material;
+      this.textureDropdownOptions[material.name] = {};
+      this.materialDropdownOptions[material.name] = material.name;
+
+      if (material.side == THREE.DoubleSide) {
+        console.log("This material was double sided, fixing.");
+        material.side = THREE.FrontSide;
+      }
+      MAP_NAMES.forEach( (map) => {
+       if (material[ map ]) {
+         material[map].image.originalImage = originalImg;
+         var name = material[map].name.toString() + material[map].format.toString();
+
+         if (this.mapCache[name]) {
+           material[map] = this.mapCache[name];
+         } else {
+          material[map].image.name = material[map].name;
+          this.mapCache[name] = material[map];
+         }
+
+         this.textures[name] = { textureReference: material[map], quality: 0.92, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees', compressTexture: false };
+         var mapName = map;
+         if (map == "aoMap" || map == "roughnessMap" || map == "metalnessMap") {
+           mapName = "ao / m / r"
+         }
+         if (map == "map") {
+           mapName = "diffuse"
+         }
+
+         if (map == "normalMap") {
+           mapName = "normals"
+         }
+         
+         this.textureDropdownOptions[material.name][mapName] = name;
+       }
+      });
+      if (Object.entries(this.textureDropdownOptions[material.name]).length == 0) {
+        delete this.materialDropdownOptions[material.name];
+      }
+    });
+      
+
+    this.selectMaterial(Object.keys(this.materialDropdownOptions)[0]);
+    this.updateDropdown(this.materialDropdown, this.materialDropdownOptions);
+
+    this.materialFolder.open();
+
+    return;
+  }
+
+
+
+
   updateBackground () {
     this.background.style({colors: [this.state.bgColor1, this.state.bgColor2]});
   }
@@ -518,6 +841,48 @@ module.exports = class Viewer {
         material.needsUpdate = true;
       });
     });
+
+
+    var toggleEl = (el, tag, on) => {
+      var opacity = on ? 1 : 0.4;
+      var pointerEvents = on ? "inherit" : "none"
+      var element = tag != "" ? el.domElement.getElementsByTagName(tag)[0] : el.domElement;
+      element.style.opacity = opacity;
+      element.style.pointerEvents = pointerEvents;
+    }
+
+    this.toggleCompression =  (shouldCompress)  => {
+      toggleEl(this.resolutionDropdown, 'select', shouldCompress);
+      toggleEl(this.formatDropdown, 'select', shouldCompress);
+      toggleEl(this.quality, '', shouldCompress);
+    }
+
+
+    // Material selection
+    this.materialFolder = gui.addFolder('Materials');
+    this.materialDropdown = this.materialFolder.add(this.state, 'material', {}).onChange((m) => {this.selectMaterial(m)});
+    this.textureDropdown = this.materialFolder.add(this.state, 'texture', {}).onChange((t) => {this.selectTexture(t)});
+
+    this.compressTexture = this.materialFolder.add(this.state, 'compressTexture').name("compress?").listen().onChange((c) => {this.toggleCompression(c); this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, this.state.imageFormat, c);});
+
+    this.resolutionDropdown = this.materialFolder.add(this.state, 'resolution', {}).listen().onChange((r) => {this.updateTexture(this.currentMap, this.state.quality, r, this.state.imageFormat, this.state.compressTexture)});
+    this.formatDropdown = this.materialFolder.add(this.state, 'imageFormat', {'jpg': 'image/jpeg', 'png': 'image/png'}).listen().onChange((f) => {this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, f, this.state.compressTexture)});;
+    this.quality = this.materialFolder.add(this.state, 'quality', 0, 1, 0.01).min(0.01).listen();
+    this.quality.onFinishChange( (q) => this.updateTexture(this.currentMap, q, this.state.resolution, this.state.imageFormat, this.state.compressTexture));
+
+    this.originalTextureFilesize = this.materialFolder.add(this.state, 'originalTextureFilesize').name("Original size").listen();
+    this.originalTextureFilesize.domElement.style.pointerEvents = "none"
+    this.originalTextureFilesize.domElement.style.opacity = 1;
+
+    this.newTextureFilesize = this.materialFolder.add(this.state, 'newTextureFilesize').name("Compressed size").listen();
+    this.newTextureFilesize.domElement.style.pointerEvents = "none";
+    this.newTextureFilesize.domElement.style.opacity = 1;
+
+    this.toggleCompression(false);
+
+
+
+
     const envMapCtrl = lightFolder.add(this.state, 'environment', environments.map((env) => env.name));
     envMapCtrl.onChange(() => this.updateEnvironment());
     [
@@ -546,13 +911,34 @@ module.exports = class Viewer {
     this.cameraFolder = gui.addFolder('Cameras');
     this.cameraFolder.domElement.style.display = 'none';
 
+
+    // Export
+
+
+    this.exportFolder = gui.addFolder('Details');
+    this.exportFolder.open();
+    var exportBtn = { Export: () => { this.export() } };
+
+    this.originalFilesizeGui = this.exportFolder.add(this.state, 'originalFilesize').name("Original size").listen();
+    this.originalFilesizeGui.domElement.style.pointerEvents = "none"
+    this.originalFilesizeGui.domElement.style.opacity = 1;
+
+    this.newFilesizeGui = this.exportFolder.add(this.state, 'newFilesize').name("Approx new size").listen();
+    this.newFilesizeGui.domElement.style.pointerEvents = "none";
+    this.newFilesizeGui.domElement.style.opacity = 1;
+
+    this.exportFolder.add(exportBtn,'Export');
+    this.exportFolder.domElement.addEventListener('click', () => {
+     // this.export();
+    });
+
     // Stats.
-    const perfFolder = gui.addFolder('Performance');
-    const perfLi = document.createElement('li');
-    this.stats.dom.style.position = 'static';
-    perfLi.appendChild(this.stats.dom);
-    perfLi.classList.add('gui-stats');
-    perfFolder.__ul.appendChild( perfLi );
+    //const perfFolder = gui.addFolder('Performance');
+    //const perfLi = document.createElement('li');
+    //this.stats.dom.style.position = 'static';
+    //perfLi.appendChild(this.stats.dom);
+    //perfLi.classList.add('gui-stats');
+    //perfFolder.__ul.appendChild( perfLi );
 
     const guiWrap = document.createElement('div');
     this.el.appendChild( guiWrap );
@@ -665,6 +1051,118 @@ module.exports = class Viewer {
   }
 
 };
+
+// function getDataUri(url, callback) {
+//     var image = new Image();
+
+//     image.onload = function () {
+//         var canvas = document.createElement('canvas');
+//         canvas.width = this.naturalWidth; // or 'width' if you want a special/scaled size
+//         canvas.height = this.naturalHeight; // or 'height' if you want a special/scaled size
+
+//         canvas.getContext('2d').drawImage(this, 0, 0);
+
+//         // Get raw image data
+//         callback(canvas.toDataURL('image/png').replace(/^data:image\/(png|jpg);base64,/, ''));
+
+//         // ... or get as Data URI
+//         callback(canvas.toDataURL('image/png'));
+//     };
+
+//     image.src = url;
+// }
+
+
+
+function save( blob, filename ) {
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL( blob );
+  link.download = filename;
+  link.click();
+
+}
+
+function saveString( text, filename ) {
+
+  save( new Blob( [ text ], { type: 'text/plain' } ), filename );
+
+}
+
+function saveArrayBuffer( buffer, filename ) {
+
+  save( new Blob( [ buffer ], { type: 'application/octet-stream' } ), filename );
+
+}
+
+function extractImageDataToCanvas(image) {
+
+
+    // Create a temporary canvas to draw the downscaled image on.
+    canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+
+    // Draw the downscaled image on the canvas and return the new data URL.
+    ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas;
+}
+
+// Take an image URL, downscale it to the given width, and return a new image URL.
+function downscaleImage(image, newWidth, imageType, imageArguments) {
+    "use strict";
+    var oldWidth, oldHeight, newHeight, canvas, ctx, newDataUrl;
+
+    // Provide default values
+    imageType = imageType || "image/jpeg";
+
+    // Create a temporary image so that we can compute the height of the downscaled image.
+   // image = new Image();
+    //image.src = dataUrl;
+    oldWidth = image.width;
+    oldHeight = image.height;
+    newHeight = Math.floor(oldHeight / oldWidth * newWidth)
+
+    // Create a temporary canvas to draw the downscaled image on.
+    canvas = document.createElement("canvas");
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+
+    // Draw the downscaled image on the canvas and return the new data URL.
+    ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, newWidth, newHeight);
+    newDataUrl = canvas.toDataURL(imageType, imageArguments);
+    return newDataUrl;
+}
+
+function downscaleCanvas(canvas, newWidth, imageType, imageArguments) {
+    "use strict";
+    var oldWidth, oldHeight, newHeight, canvas, ctx, newDataUrl;
+
+    // Provide default values
+    imageType = imageType || "image/jpeg";
+
+    // Create a temporary image so that we can compute the height of the downscaled image.
+   // image = new Image();
+    //image.src = dataUrl;
+    oldWidth = canvas.width;
+    oldHeight = canvas.height;
+    newHeight = Math.floor(oldHeight / oldWidth * newWidth)
+
+    // Create a temporary canvas to draw the downscaled image on.
+    var newCanvas = document.createElement("canvas");
+    newCanvas.width = newWidth;
+    newCanvas.height = newHeight;
+
+    // Draw the downscaled image on the canvas and return the new data URL.
+    ctx = newCanvas.getContext("2d");
+    ctx.drawImage(canvas, 0, 0, newWidth, newHeight);
+    newDataUrl = newCanvas.toDataURL(imageType, imageArguments);
+    return newDataUrl;
+}
+
+
+
 
 function traverseMaterials (object, callback) {
   object.traverse((node) => {

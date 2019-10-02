@@ -2,10 +2,10 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>glTF Viewer</title>
+  <title>glTF Compressor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="author" content="Don McCurdy">
-  <meta name="description" content="Drag-and-drop preview tool for glTF 2.0 3D models.">
+  <meta name="description" content="Drag-and-drop compression tool for glTF 2.0 3D models.">
   <link rel="canonical" href="https://gltf-viewer.donmccurdy.com/">
   <link rel="shortcut icon" href="assets/favicon.ico">
   <link rel="stylesheet" href="style.css">
@@ -15,22 +15,14 @@
 </head>
 <body>
   <header>
-    <h1><a href="/">glTF Viewer</a></h1>
+    <h1><a href="/">glTF Compressor</a></h1>
     <span class="separator layout-md"> | </span>
-    <a class="item layout-md" target="_blank" href="https://github.com/mrdoob/three.js/tree/r105">
-      three.js r105
-    </a>
-    <span class="separator layout-md"> | </span>
-    <a class="item layout-md" target="_blank" href="https://github.com/mrdoob/three.js/blob/r105/examples/js/loaders/GLTFLoader.js">
-      THREE.GLTFLoader@r105
-    </a>
-    <span class="separator"> | </span>
-    <a class="item" target="_blank" href="https://github.com/donmccurdy/three-gltf-viewer/issues/new">
-      help & feedback
-    </a>
-    <span class="separator"> | </span>
     <a class="item" target="_blank" href="https://github.com/donmccurdy/three-gltf-viewer">
       source
+    </a>
+
+    <a class="item" id="compare-btn" href="#">
+      Compare (c)
     </a>
     <span class="flex-grow"></span>
     <button id="download-btn" class="item" style="display: none;">⬇&nbsp;&nbsp;&nbsp;Download</button>
@@ -40,6 +32,7 @@
       <div class="placeholder">
         <p>Drag glTF 2.0 file or folder here</p>
       </div>
+
       <div class="upload-btn">
         <input type="file" name="file-input[]" id="file-input" multiple="">
         <label for="file-input">
@@ -48,6 +41,7 @@
         </label>
       </div>
     </div>
+
     <div class="spinner"></div>
   </main>
   <script type="text/x-handlebars-template" id="report-toggle-template">
@@ -171,5 +165,4 @@
       </tbody>
     </table>
   </script>
-  <script src="https://analytics.donmccurdy.com/client.js"></script>
 </body>
