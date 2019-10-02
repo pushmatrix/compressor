@@ -70,7 +70,22 @@ class App {
     this.viewerEl.classList.add('viewer');
     this.dropEl.innerHTML = '';
     this.dropEl.appendChild(this.viewerEl);
+
+    var canvas = document.createElement('canvas');
+    canvas.classList.add('col');
+    canvas.id = 'viewer-canvas';
+
+    var textureView = document.createElement('div');
+    textureView.classList.add('col');
+    textureView.id = 'texture-view';
+
+
+    this.viewerEl.appendChild(canvas);
+    this.viewerEl.appendChild(textureView);
+
+
     this.viewer = new Viewer(this.viewerEl, this.options);
+
     return this.viewer;
   }
 

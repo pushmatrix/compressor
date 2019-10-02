@@ -5,6 +5,7 @@ const environments = require('../assets/environment/index');
 const createVignetteBackground = require('three-vignette-background');
 
 require('three/examples/js/loaders/GLTFLoader');
+require('three/examples/js/exporters/GLTFExporter');
 require('three/examples/js/loaders/DRACOLoader');
 require('three/examples/js/loaders/DDSLoader');
 require('three/examples/js/controls/OrbitControls');
@@ -46,6 +47,8 @@ module.exports = class Viewer {
     this.clips = [];
     this.gui = null;
 
+    this.originalFileSize = 0;
+
     this.state = {
       environment: options.preset === Preset.ASSET_GENERATOR
         ? 'Footprint Court (HDR)'
@@ -57,6 +60,11 @@ module.exports = class Viewer {
       wireframe: false,
       skeleton: false,
       grid: false,
+      material: null,
+      texture: null,
+      quality: 1,
+      imageFormat: null,
+      resolution: 2048,
 
       // Lights
       addLights: true,
@@ -69,6 +77,9 @@ module.exports = class Viewer {
       bgColor1: '#ffffff',
       bgColor2: '#353535'
     };
+
+    this.materials = {};
+    this.textures = {};
 
     this.prevTime = 0;
 
@@ -85,13 +96,32 @@ module.exports = class Viewer {
     this.activeCamera = this.defaultCamera;
     this.scene.add( this.defaultCamera );
 
-    this.renderer = window.renderer = new THREE.WebGLRenderer({antialias: true});
+
+    this.canvas = document.getElementById("viewer-canvas");
+    this.renderer = window.renderer = new THREE.WebGLRenderer({antialias: true, canvas: this.canvas});
     this.renderer.physicallyCorrectLights = true;
     this.renderer.gammaOutput = true;
     this.renderer.gammaFactor = 2.2;
     this.renderer.setClearColor( 0xcccccc );
     this.renderer.setPixelRatio( window.devicePixelRatio );
-    this.renderer.setSize( el.clientWidth, el.clientHeight );
+    this.renderer.setSize( this.canvas.clientWidth, this.canvas.clientHeight );
+
+
+    document.getElementById("compare-btn").addEventListener('mousedown', () => {
+      document.getElementById("original-texture").style.opacity = 1;
+
+      this.originalObject.visible = true;
+      this.content.visible = false;
+    });
+
+    document.getElementById("compare-btn").addEventListener('mouseup', () => {
+      document.getElementById("original-texture").style.opacity = 0;
+
+      this.originalObject.visible = false;
+      this.content.visible = true;
+    });
+
+    this.defaultCamera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
 
     this.controls = new THREE.OrbitControls( this.defaultCamera, this.renderer.domElement );
     this.controls.autoRotate = false;
@@ -104,7 +134,6 @@ module.exports = class Viewer {
       colors: [this.state.bgColor1, this.state.bgColor2]
     });
 
-    this.el.appendChild(this.renderer.domElement);
 
     this.cameraCtrl = null;
     this.cameraFolder = null;
@@ -146,8 +175,7 @@ module.exports = class Viewer {
   }
 
   resize () {
-
-    const {clientHeight, clientWidth} = this.el.parentElement;
+    const {clientHeight, clientWidth} = this.canvas;
 
     this.defaultCamera.aspect = clientWidth / clientHeight;
     this.defaultCamera.updateProjectionMatrix();
@@ -156,9 +184,20 @@ module.exports = class Viewer {
 
   }
 
+  extractTextures(material) {
+    console.log(material);
+  }
+
   load ( url, rootPath, assetMap ) {
 
     const baseURL = THREE.LoaderUtils.extractUrlBase(url);
+    
+
+    Array.from(assetMap).forEach(([path, file]) => {
+      this.originalFileSize += file.size;
+    });
+
+    console.log(this.originalFileSize);
 
     // Load.
     return new Promise((resolve, reject) => {
@@ -183,6 +222,20 @@ module.exports = class Viewer {
 
       });
 
+      var loadCopy = () => { 
+        loader.load(url, (gltf) => {
+
+          const scene = gltf.scene || gltf.scenes[0];
+          const clips = gltf.animations || [];
+
+          this.setContent(scene, clips);
+          blobURLs.forEach(URL.revokeObjectURL);
+
+          resolve(gltf);
+
+        }, undefined, reject);
+      }
+
       const loader = new THREE.GLTFLoader(manager);
       loader.setCrossOrigin('anonymous');
       loader.setDRACOLoader( new THREE.DRACOLoader() );
@@ -192,14 +245,13 @@ module.exports = class Viewer {
 
         const scene = gltf.scene || gltf.scenes[0];
         const clips = gltf.animations || [];
-        this.setContent(scene, clips);
 
+        this.originalObject = scene;
+        this.originalObject.visible = false;
+        this.scene.add(scene);
         blobURLs.forEach(URL.revokeObjectURL);
 
-        // See: https://github.com/google/draco/issues/349
-        // THREE.DRACOLoader.releaseDecoderModule();
-
-        resolve(gltf);
+        loadCopy();
 
       }, undefined, reject);
 
@@ -237,9 +289,9 @@ module.exports = class Viewer {
     } else {
 
       this.defaultCamera.position.copy(center);
-      this.defaultCamera.position.x += size / 2.0;
-      this.defaultCamera.position.y += size / 5.0;
-      this.defaultCamera.position.z += size / 2.0;
+      this.defaultCamera.position.x = 0;
+      this.defaultCamera.position.y = 0;
+      this.defaultCamera.position.z = size;
       this.defaultCamera.lookAt(center);
 
     }
@@ -249,6 +301,9 @@ module.exports = class Viewer {
     this.controls.saveState();
 
     this.scene.add(object);
+
+    this.originalObject.position.set(object.position.x, object.position.y, object.position.z);
+
     this.content = object;
 
     this.state.addLights = true;
@@ -265,6 +320,7 @@ module.exports = class Viewer {
     this.updateEnvironment();
     this.updateTextureEncoding();
     this.updateDisplay();
+    this.updateTextures();
 
     window.content = this.content;
     console.info('[glTF Viewer] THREE.Scene exported as `window.content`.');
@@ -400,6 +456,13 @@ module.exports = class Viewer {
         }
       });
 
+      traverseMaterials(this.originalObject, (material) => {
+        if (material.isMeshStandardMaterial || material.isGLTFSpecularGlossinessMaterial) {
+          material.envMap = envMap;
+          material.needsUpdate = true;
+        }
+      });
+
       this.scene.background = this.state.background ? cubeMap : null;
 
     });
@@ -484,6 +547,141 @@ module.exports = class Viewer {
     }
   }
 
+  selectTexture(uuid) {
+    this.state.quality = this.textures[uuid].quality;
+    this.state.imageFormat = this.textures[uuid].imageFormat;
+    this.state.resolution = this.textures[uuid].resolution;
+
+
+    if (this.textures[uuid].sourceImage == null) {
+      this.textures[uuid].sourceImage = extractImageDataToCanvas(this.textures[uuid].textureReference.image);
+    }
+
+    var o = document.getElementById('original-texture');
+    o.src = this.textures[uuid].sourceImage.toDataURL();
+
+    //var head = 'data:image/png;base64,';
+    //var imgFileSize = Math.round((this.textures[uuid].sourceImage.toDataURL().length - head.length)*3/4) ;
+    //console.log(imgFileSize);
+
+    var availableResolutions = {}
+    var resolutions = [128, 256, 512, 1024, 2048, 4096];
+    for (var i = 0; i < resolutions.length; i++) {
+      if (resolutions[i] <= this.state.resolution) {
+        availableResolutions[resolutions[i]] = resolutions[i];
+      }
+    }
+
+    this.updateDropdown(this.resolutionDropdown, availableResolutions);
+
+    this.updateTexture(uuid, this.state.quality, this.state.resolution, this.state.imageFormat);
+  }
+
+  updateTexture(uuid, quality, resolution, format) {
+    this.state.quality = this.textures[uuid].quality = quality;
+    this.state.resolution = this.textures[uuid].resolution = resolution;
+    this.state.imageFormat = this.textures[uuid].imageFormat = format;
+
+    this.currentMap = uuid;
+    var v = document.getElementById('current-texture');
+    var newSrc = downscaleCanvas(this.textures[uuid].sourceImage, resolution, format, quality);
+
+
+    this.textures[uuid].textureReference.image.src = newSrc;
+    this.textures[uuid].textureReference.needsUpdate = true;
+    v.src = newSrc;
+  }
+
+  selectMaterial(name) {
+    this.state.material = name;
+    var material = this.materials[name];
+
+
+    var firstTexture = this.textureDropdownOptions[name][Object.keys(this.textureDropdownOptions[name])[0]];
+
+    this.state.texture = firstTexture;
+
+    this.updateDropdown(this.textureDropdown, this.textureDropdownOptions[name]);
+
+    this.selectTexture(firstTexture);
+  }
+
+  updateDropdown(target, list){   
+    var innerHTMLStr = "";
+    for(var i=0; i<Object.keys(list).length; i++){
+        var str = "<option value='" + list[Object.keys(list)[i]] + "'>" + Object.keys(list)[i] + "</option>";
+        innerHTMLStr += str;        
+    }
+
+    if (innerHTMLStr != "") target.domElement.children[0].innerHTML = innerHTMLStr;
+  }
+
+  export() {
+    var content = this.content;
+    var exporter = new THREE.GLTFExporter();
+    setTimeout(function(){
+      exporter.parse( content, function ( gltf ) {
+        saveArrayBuffer( gltf, 'scene.glb' );
+      }, {binary: true} );
+    }, 1000);
+  }
+
+
+  updateTextures() {
+
+    var textureView = document.getElementById('texture-view');
+
+    var fc = textureView.firstChild;
+
+    while( fc ) {
+        textureView.removeChild( fc );
+        fc = textureView.firstChild;
+    }
+
+    var img = new Image();
+    img.id = 'current-texture';
+    document.getElementById('texture-view').appendChild(img);
+
+    var originalImg = new Image();
+    originalImg.id = 'original-texture';
+    document.getElementById('texture-view').appendChild(originalImg);
+
+    this.textureDropdownOptions = {};
+    this.materialDropdownOptions = {};
+    traverseMaterials(this.content, (material) => {
+      this.materials[material.name] = material;
+      this.textureDropdownOptions[material.name] = {};
+      this.materialDropdownOptions[material.name] = material.name;
+      MAP_NAMES.forEach( (map) => {
+       if (material[ map ]) {
+         this.textures[material[map].uuid] = { textureReference: material[map], quality: 1, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees' };
+         var mapName = map;
+         if (map == "aoMap" || map == "roughnessMap" || map == "metalnessMap") {
+           mapName = "ao / m / r"
+         }
+         if (map == "map") {
+           mapName = "diffuse"
+         }
+
+         if (map == "normalMap") {
+           mapName = "normals"
+         }
+         
+         this.textureDropdownOptions[material.name][mapName] = material[map].uuid;
+       }
+      });
+    });
+      
+
+    this.selectMaterial(Object.keys(this.materialDropdownOptions)[0]);
+    this.updateDropdown(this.materialDropdown, this.materialDropdownOptions);
+
+    return;
+  }
+
+
+
+
   updateBackground () {
     this.background.style({colors: [this.state.bgColor1, this.state.bgColor2]});
   }
@@ -518,6 +716,20 @@ module.exports = class Viewer {
         material.needsUpdate = true;
       });
     });
+
+
+    // Material selection
+    this.materialFolder = gui.addFolder('Materials');
+    this.materialDropdown = this.materialFolder.add(this.state, 'material', {}).onChange((m) => {this.selectMaterial(m)});
+    this.textureDropdown = this.materialFolder.add(this.state, 'texture', {}).onChange((t) => {this.selectTexture(t)});
+
+    this.resolutionDropdown = this.materialFolder.add(this.state, 'resolution', {}).listen().onChange((r) => {this.updateTexture(this.currentMap, this.state.quality, r, this.state.imageFormat)});
+    this.formatDropdown = this.materialFolder.add(this.state, 'imageFormat', {'jpg': 'image/jpeg', 'png': 'image/png'}).listen().onChange((f) => {this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, f)});;
+    this.quality = this.materialFolder.add(this.state, 'quality', 0, 1, 0.01).min(0.01).listen();
+    this.quality.onFinishChange( (q) => this.updateTexture(this.currentMap, q, this.state.resolution, this.state.imageFormat));
+
+
+
     const envMapCtrl = lightFolder.add(this.state, 'environment', environments.map((env) => env.name));
     envMapCtrl.onChange(() => this.updateEnvironment());
     [
@@ -546,13 +758,20 @@ module.exports = class Viewer {
     this.cameraFolder = gui.addFolder('Cameras');
     this.cameraFolder.domElement.style.display = 'none';
 
+
+    // Export
+    this.exportFolder = gui.addFolder('Export');
+    this.exportFolder.domElement.addEventListener('click', () => {
+      this.export();
+    });
+
     // Stats.
-    const perfFolder = gui.addFolder('Performance');
-    const perfLi = document.createElement('li');
-    this.stats.dom.style.position = 'static';
-    perfLi.appendChild(this.stats.dom);
-    perfLi.classList.add('gui-stats');
-    perfFolder.__ul.appendChild( perfLi );
+    //const perfFolder = gui.addFolder('Performance');
+    //const perfLi = document.createElement('li');
+    //this.stats.dom.style.position = 'static';
+    //perfLi.appendChild(this.stats.dom);
+    //perfLi.classList.add('gui-stats');
+    //perfFolder.__ul.appendChild( perfLi );
 
     const guiWrap = document.createElement('div');
     this.el.appendChild( guiWrap );
@@ -665,6 +884,118 @@ module.exports = class Viewer {
   }
 
 };
+
+// function getDataUri(url, callback) {
+//     var image = new Image();
+
+//     image.onload = function () {
+//         var canvas = document.createElement('canvas');
+//         canvas.width = this.naturalWidth; // or 'width' if you want a special/scaled size
+//         canvas.height = this.naturalHeight; // or 'height' if you want a special/scaled size
+
+//         canvas.getContext('2d').drawImage(this, 0, 0);
+
+//         // Get raw image data
+//         callback(canvas.toDataURL('image/png').replace(/^data:image\/(png|jpg);base64,/, ''));
+
+//         // ... or get as Data URI
+//         callback(canvas.toDataURL('image/png'));
+//     };
+
+//     image.src = url;
+// }
+
+
+
+function save( blob, filename ) {
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL( blob );
+  link.download = filename;
+  link.click();
+
+}
+
+function saveString( text, filename ) {
+
+  save( new Blob( [ text ], { type: 'text/plain' } ), filename );
+
+}
+
+function saveArrayBuffer( buffer, filename ) {
+
+  save( new Blob( [ buffer ], { type: 'application/octet-stream' } ), filename );
+
+}
+
+function extractImageDataToCanvas(image) {
+
+
+    // Create a temporary canvas to draw the downscaled image on.
+    canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+
+    // Draw the downscaled image on the canvas and return the new data URL.
+    ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas;
+}
+
+// Take an image URL, downscale it to the given width, and return a new image URL.
+function downscaleImage(image, newWidth, imageType, imageArguments) {
+    "use strict";
+    var oldWidth, oldHeight, newHeight, canvas, ctx, newDataUrl;
+
+    // Provide default values
+    imageType = imageType || "image/jpeg";
+
+    // Create a temporary image so that we can compute the height of the downscaled image.
+   // image = new Image();
+    //image.src = dataUrl;
+    oldWidth = image.width;
+    oldHeight = image.height;
+    newHeight = Math.floor(oldHeight / oldWidth * newWidth)
+
+    // Create a temporary canvas to draw the downscaled image on.
+    canvas = document.createElement("canvas");
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+
+    // Draw the downscaled image on the canvas and return the new data URL.
+    ctx = canvas.getContext("2d");
+    ctx.drawImage(image, 0, 0, newWidth, newHeight);
+    newDataUrl = canvas.toDataURL(imageType, imageArguments);
+    return newDataUrl;
+}
+
+function downscaleCanvas(canvas, newWidth, imageType, imageArguments) {
+    "use strict";
+    var oldWidth, oldHeight, newHeight, canvas, ctx, newDataUrl;
+
+    // Provide default values
+    imageType = imageType || "image/jpeg";
+
+    // Create a temporary image so that we can compute the height of the downscaled image.
+   // image = new Image();
+    //image.src = dataUrl;
+    oldWidth = canvas.width;
+    oldHeight = canvas.height;
+    newHeight = Math.floor(oldHeight / oldWidth * newWidth)
+
+    // Create a temporary canvas to draw the downscaled image on.
+    var newCanvas = document.createElement("canvas");
+    newCanvas.width = newWidth;
+    newCanvas.height = newHeight;
+
+    // Draw the downscaled image on the canvas and return the new data URL.
+    ctx = newCanvas.getContext("2d");
+    ctx.drawImage(canvas, 0, 0, newWidth, newHeight);
+    newDataUrl = newCanvas.toDataURL(imageType, imageArguments);
+    return newDataUrl;
+}
+
+
+
 
 function traverseMaterials (object, callback) {
   object.traverse((node) => {

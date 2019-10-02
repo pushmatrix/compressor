@@ -31,6 +31,13 @@ body {
   align-items: center;
 }
 
+#original-texture {
+  position: absolute;
+  opacity: 0;
+  top: 0px;
+  left: 0px;
+}
+
 .placeholder {
   width: 100%;
   max-width: 500px;
@@ -52,6 +59,26 @@ body {
   flex-shrink: 1;
   position: absolute;
   top: 0;
+  display: flex;
+}
+
+.col {
+  flex: 1;
+}
+
+#viewer-canvas {
+  height: 100%;
+}
+
+
+#texture-view {
+  background: black;
+  pointer-events: none;
+  position: relative;
+}
+
+#texture-view img {
+  width: 100% !important;
 }
 
 /******************************************************************************
