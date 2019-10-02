@@ -71611,18 +71611,35 @@ module.exports = class Viewer {
     this.renderer.setSize( this.canvas.clientWidth, this.canvas.clientHeight );
 
 
-    document.getElementById("compare-btn").addEventListener('mousedown', () => {
-      document.getElementById("original-texture").style.opacity = 1;
 
-      this.originalObject.visible = true;
-      this.content.visible = false;
+    var compare = (on) => {
+      document.getElementById("original-texture").style.opacity = on ? 1 : 0;
+
+      this.originalObject.visible = on;
+      this.content.visible = !on;
+    }
+
+    document.body.onkeyup = function(e){
+      if(e.keyCode == 67){
+        compare(false);
+      }
+    }
+
+    document.body.onkeydown = function(e){
+      if(e.keyCode == 67){
+        compare(true);
+      }
+    }
+
+
+
+
+    document.getElementById("compare-btn").addEventListener('mousedown', () => {
+      compare(true);
     });
 
     document.getElementById("compare-btn").addEventListener('mouseup', () => {
-      document.getElementById("original-texture").style.opacity = 0;
-
-      this.originalObject.visible = false;
-      this.content.visible = true;
+      compare(false);
     });
 
     this.defaultCamera.aspect = this.canvas.clientWidth / this.canvas.clientHeight;
@@ -71693,6 +71710,7 @@ module.exports = class Viewer {
   }
 
   load ( url, rootPath, assetMap ) {
+    document.activeElement.blur()
 
     const baseURL = THREE.LoaderUtils.extractUrlBase(url);
     
