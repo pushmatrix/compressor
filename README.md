@@ -1,4 +1,4 @@
-# glTF Viewer
+# Compressor
 
 Preview glTF 2.0 models in WebGL using three.js and a drag-and-drop interface.
 
