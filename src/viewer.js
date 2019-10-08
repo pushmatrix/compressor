@@ -5,7 +5,7 @@ const environments = require('../assets/environment/index');
 const createVignetteBackground = require('three-vignette-background');
 
 require('three/examples/js/loaders/GLTFLoader');
-require('three/examples/js/exporters/GLTFExporter');
+require('../lib/GLTFExporter');
 require('three/examples/js/loaders/DRACOLoader');
 require('three/examples/js/loaders/DDSLoader');
 require('three/examples/js/controls/OrbitControls');
