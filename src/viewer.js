@@ -65,6 +65,8 @@ module.exports = class Viewer {
       quality: 1,
       imageFormat: null,
       resolution: 2048,
+      originalFilesize: "",
+      newFilesize: "",
 
       // Lights
       addLights: true,
@@ -569,6 +571,8 @@ module.exports = class Viewer {
     this.state.quality = this.textures[uuid].quality;
     this.state.imageFormat = this.textures[uuid].imageFormat;
     this.state.resolution = this.textures[uuid].resolution;
+    this.state.originalFilesize = '2 MB';
+
 
 
     if (this.textures[uuid].sourceImage == null) {
@@ -604,9 +608,16 @@ module.exports = class Viewer {
     var v = document.getElementById('current-texture');
     var newSrc = downscaleCanvas(this.textures[uuid].sourceImage, resolution, format, quality);
 
+    this.state.newFilesize = (Math.round(newSrc.length * 1) / 1024 / 1024).toFixed(2) + " MB";
 
     this.textures[uuid].textureReference.image.src = newSrc;
+
+    // Store the format so when we are exporting we can know what format it is.
+    this.textures[uuid].textureReference.image.format = format;
+    this.textures[uuid].textureReference.image.quality = quality;
     this.textures[uuid].textureReference.needsUpdate = true;
+
+
     v.src = newSrc;
   }
 
@@ -672,7 +683,8 @@ module.exports = class Viewer {
       this.materialDropdownOptions[material.name] = material.name;
       MAP_NAMES.forEach( (map) => {
        if (material[ map ]) {
-         this.textures[material[map].uuid] = { textureReference: material[map], quality: 1, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees' };
+         material[map].image.originalImage = originalImg;
+         this.textures[material[map].uuid] = { textureReference: material[map], quality: 0.92, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees' };
          var mapName = map;
          if (map == "aoMap" || map == "roughnessMap" || map == "metalnessMap") {
            mapName = "ao / m / r"
@@ -747,6 +759,14 @@ module.exports = class Viewer {
     this.formatDropdown = this.materialFolder.add(this.state, 'imageFormat', {'jpg': 'image/jpeg', 'png': 'image/png'}).listen().onChange((f) => {this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, f)});;
     this.quality = this.materialFolder.add(this.state, 'quality', 0, 1, 0.01).min(0.01).listen();
     this.quality.onFinishChange( (q) => this.updateTexture(this.currentMap, q, this.state.resolution, this.state.imageFormat));
+
+    this.originalFilesize = this.materialFolder.add(this.state, 'originalFilesize').name("Original size").listen();
+    this.originalFilesize.domElement.style.pointerEvents = "none"
+    this.originalFilesize.domElement.style.opacity = 1;
+
+    this.newFilesize = this.materialFolder.add(this.state, 'newFilesize').name("New size").listen();
+    this.newFilesize.domElement.style.pointerEvents = "none";
+    this.newFilesize.domElement.style.opacity = 1;
 
 
 
