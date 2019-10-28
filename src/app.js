@@ -71,16 +71,21 @@ class App {
     this.dropEl.innerHTML = '';
     this.dropEl.appendChild(this.viewerEl);
 
+    var modelView = document.createElement('div');
+    modelView.classList.add('col');
+    modelView.id = '3d-view';
+
     var canvas = document.createElement('canvas');
-    canvas.classList.add('col');
     canvas.id = 'viewer-canvas';
 
     var textureView = document.createElement('div');
     textureView.classList.add('col');
     textureView.id = 'texture-view';
 
+    modelView.appendChild(canvas);
 
-    this.viewerEl.appendChild(canvas);
+
+    this.viewerEl.appendChild(modelView);
     this.viewerEl.appendChild(textureView);
 
 

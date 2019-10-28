@@ -47,7 +47,11 @@ module.exports = class Viewer {
     this.clips = [];
     this.gui = null;
 
-    this.originalFileSize = 0;
+    this.originalTextureFilesize = 0;
+    this.originalTotalTextureFilesize = 0;
+    this.originalTextureFilesizes = {};
+    this.newTextureFilesizes = {};
+    this.originalFilesize = 0;
 
     this.state = {
       environment: options.preset === Preset.ASSET_GENERATOR
@@ -63,8 +67,12 @@ module.exports = class Viewer {
       material: null,
       texture: null,
       quality: 1,
+      compressTexture: false,
       imageFormat: null,
       resolution: 2048,
+      originalTextureFilesize: "",
+      newTextureFilesize: "",
+
       originalFilesize: "",
       newFilesize: "",
 
@@ -100,13 +108,14 @@ module.exports = class Viewer {
 
 
     this.canvas = document.getElementById("viewer-canvas");
+    this.wrapper = document.getElementById("3d-view");
     this.renderer = window.renderer = new THREE.WebGLRenderer({antialias: true, canvas: this.canvas});
     this.renderer.physicallyCorrectLights = true;
     this.renderer.gammaOutput = true;
     this.renderer.gammaFactor = 2.2;
     this.renderer.setClearColor( 0xcccccc );
     this.renderer.setPixelRatio( window.devicePixelRatio );
-    this.renderer.setSize( this.canvas.clientWidth, this.canvas.clientHeight );
+    this.renderer.setSize( this.wrapper.clientWidth, this.wrapper.clientHeight );
 
 
 
@@ -194,13 +203,12 @@ module.exports = class Viewer {
   }
 
   resize () {
-    const {clientHeight, clientWidth} = this.canvas;
+    const {clientHeight, clientWidth} = this.wrapper;
 
     this.defaultCamera.aspect = clientWidth / clientHeight;
     this.defaultCamera.updateProjectionMatrix();
     this.background.style({aspect: this.defaultCamera.aspect});
     this.renderer.setSize(clientWidth, clientHeight);
-
   }
 
   extractTextures(material) {
@@ -212,12 +220,30 @@ module.exports = class Viewer {
 
     const baseURL = THREE.LoaderUtils.extractUrlBase(url);
     
+    window.originalFiles = {};
+
+    this.originalTextureFilesize = 0;
+    this.originalTotalTextureFilesize = 0;
+    this.originalTextureFilesizes = {};
+    this.newTextureFilesizes = {};
+    this.originalFilesize = 0;
 
     Array.from(assetMap).forEach(([path, file]) => {
-      this.originalFileSize += file.size;
+      this.originalFilesize += file.size;
+
+      var paths = path.split("/");
+      var baseName = paths[paths.length - 1].split(".")[0];
+
+      window.originalFiles[baseName] = file;
+      if (file.type == "image/png" || file.type == "image/jpeg") {
+        this.originalTotalTextureFilesize += file.size;
+        this.originalTextureFilesizes[baseName] = file.size;
+      }
+     //file.arrayBuffer().then(buffer => window.fileBuffers[baseName] = buffer);
     });
 
-    console.log(this.originalFileSize);
+    this.state.originalFilesize = (this.originalFilesize / 1000/ 1000).toFixed(2) + " MB";
+
 
     // Load.
     return new Promise((resolve, reject) => {
@@ -242,7 +268,10 @@ module.exports = class Viewer {
 
       });
 
+      var _self = this;
+
       var loadCopy = () => { 
+        
         loader.load(url, (gltf) => {
 
           const scene = gltf.scene || gltf.scenes[0];
@@ -250,6 +279,8 @@ module.exports = class Viewer {
 
           this.setContent(scene, clips);
           blobURLs.forEach(URL.revokeObjectURL);
+
+          
 
           resolve(gltf);
 
@@ -261,6 +292,8 @@ module.exports = class Viewer {
       loader.setDRACOLoader( new THREE.DRACOLoader() );
       const blobURLs = [];
 
+      _self = this;
+
       loader.load(url, (gltf) => {
 
         const scene = gltf.scene || gltf.scenes[0];
@@ -270,7 +303,14 @@ module.exports = class Viewer {
         this.originalObject.visible = false;
         this.scene.add(scene);
         blobURLs.forEach(URL.revokeObjectURL);
-
+        _self.originalTextureFilesizes = Object.assign({}, _self.originalTextureFilesizes, gltf.fileSizes);
+        _self.newTextureFilesizes = Object.assign ({},_self.originalTextureFilesizes);
+        window.originalFiles = Object.assign({}, window.originalFiles, gltf.fileBuffers);
+        if (this.originalTotalTextureFilesize == 0) {
+          for (const [key, value] of Object.entries(gltf.fileSizes)) {
+            this.originalTotalTextureFilesize += value;
+          }
+        }
         loadCopy();
 
       }, undefined, reject);
@@ -532,6 +572,15 @@ module.exports = class Viewer {
 
   }
 
+  updateTotalFilesize() {
+    var textureFilesize = 0;
+    for (const [key, value] of Object.entries(this.newTextureFilesizes)) {
+      textureFilesize += value;
+    }
+
+    this.state.newFilesize = ((textureFilesize + this.originalFilesize - this.originalTotalTextureFilesize) / 1000 / 1000).toFixed(2) + " MB";
+  }
+
   updateDisplay () {
     if (this.skeletonHelpers.length) {
       this.skeletonHelpers.forEach((helper) => this.scene.remove(helper));
@@ -571,7 +620,8 @@ module.exports = class Viewer {
     this.state.quality = this.textures[uuid].quality;
     this.state.imageFormat = this.textures[uuid].imageFormat;
     this.state.resolution = this.textures[uuid].resolution;
-    this.state.originalFilesize = '2 MB';
+    this.state.compressTexture = this.textures[uuid].compressTexture;
+    this.state.originalTextureFilesize = '2 MB';
 
 
 
@@ -596,29 +646,47 @@ module.exports = class Viewer {
 
     this.updateDropdown(this.resolutionDropdown, availableResolutions);
 
-    this.updateTexture(uuid, this.state.quality, this.state.resolution, this.state.imageFormat);
+    this.toggleCompression(this.state.compressTexture);
+    this.updateTexture(uuid, this.state.quality, this.state.resolution, this.state.imageFormat, this.state.compressTexture);
   }
 
-  updateTexture(uuid, quality, resolution, format) {
+
+  updateTexture(uuid, quality, resolution, format, compressTexture) {
     this.state.quality = this.textures[uuid].quality = quality;
     this.state.resolution = this.textures[uuid].resolution = resolution;
     this.state.imageFormat = this.textures[uuid].imageFormat = format;
+    this.state.compressTexture = this.textures[uuid].compressTexture = compressTexture;
 
     this.currentMap = uuid;
     var v = document.getElementById('current-texture');
     var newSrc = downscaleCanvas(this.textures[uuid].sourceImage, resolution, format, quality);
 
-    this.state.newFilesize = (Math.round(newSrc.length * 1) / 1024 / 1024).toFixed(2) + " MB";
+    this.state.originalTextureFilesize = (this.originalTextureFilesizes[this.textures[uuid].textureReference.name]/ 1000 / 1000).toFixed(3) + " MB";
+
+    this.state.newTextureFilesize = (Math.round(newSrc.length * 1) / 1000 / 1000 * 3 / 4).toFixed(3) + " MB";
 
     this.textures[uuid].textureReference.image.src = newSrc;
 
     // Store the format so when we are exporting we can know what format it is.
     this.textures[uuid].textureReference.image.format = format;
     this.textures[uuid].textureReference.image.quality = quality;
+    this.textures[uuid].textureReference.image.compressTexture = compressTexture;
     this.textures[uuid].textureReference.needsUpdate = true;
 
 
-    v.src = newSrc;
+    this.newTextureFilesize.domElement.parentNode.style.display = this.state.compressTexture ? 'inherit' : 'none';
+
+    if (this.state.compressTexture) {
+      v.src = newSrc;
+      this.newTextureFilesizes[this.textures[uuid].textureReference.name] = newSrc.length * 3 / 4;
+    } else {
+      v.src = document.getElementById('original-texture').src;
+      this.textures[uuid].textureReference.image.src = v.src;
+      this.newTextureFilesizes[this.textures[uuid].textureReference.name] = this.originalTextureFilesizes[this.textures[uuid].textureReference.name];
+    }
+    
+    this.updateTotalFilesize();
+
   }
 
   selectMaterial(name) {
@@ -681,10 +749,16 @@ module.exports = class Viewer {
       this.materials[material.name] = material;
       this.textureDropdownOptions[material.name] = {};
       this.materialDropdownOptions[material.name] = material.name;
+
+      if (material.side == THREE.DoubleSide) {
+        console.log("This material was double sided, fixing.");
+        material.side = THREE.FrontSide;
+      }
       MAP_NAMES.forEach( (map) => {
        if (material[ map ]) {
          material[map].image.originalImage = originalImg;
-         this.textures[material[map].uuid] = { textureReference: material[map], quality: 0.92, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees' };
+         material[map].image.name = material[map].name;
+         this.textures[material[map].uuid] = { textureReference: material[map], quality: 0.92, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees', compressTexture: false };
          var mapName = map;
          if (map == "aoMap" || map == "roughnessMap" || map == "metalnessMap") {
            mapName = "ao / m / r"
@@ -750,23 +824,43 @@ module.exports = class Viewer {
     });
 
 
+    var toggleEl = (el, tag, on) => {
+      var opacity = on ? 1 : 0.4;
+      var pointerEvents = on ? "inherit" : "none;"
+      var element = tag != "" ? el.domElement.getElementsByTagName(tag)[0] : el.domElement;
+      element.style.opacity = opacity;
+      element.style.pointerEvents = pointerEvents;
+    }
+
+    this.toggleCompression =  (shouldCompress)  => {
+      toggleEl(this.resolutionDropdown, 'select', shouldCompress);
+      toggleEl(this.formatDropdown, 'select', shouldCompress);
+      toggleEl(this.quality, '', shouldCompress);
+    }
+
+
     // Material selection
     this.materialFolder = gui.addFolder('Materials');
     this.materialDropdown = this.materialFolder.add(this.state, 'material', {}).onChange((m) => {this.selectMaterial(m)});
     this.textureDropdown = this.materialFolder.add(this.state, 'texture', {}).onChange((t) => {this.selectTexture(t)});
 
-    this.resolutionDropdown = this.materialFolder.add(this.state, 'resolution', {}).listen().onChange((r) => {this.updateTexture(this.currentMap, this.state.quality, r, this.state.imageFormat)});
-    this.formatDropdown = this.materialFolder.add(this.state, 'imageFormat', {'jpg': 'image/jpeg', 'png': 'image/png'}).listen().onChange((f) => {this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, f)});;
+    this.compressTexture = this.materialFolder.add(this.state, 'compressTexture').name("compress?").listen().onChange((c) => {this.toggleCompression(c); this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, this.state.imageFormat, c);});
+
+    this.resolutionDropdown = this.materialFolder.add(this.state, 'resolution', {}).listen().onChange((r) => {this.updateTexture(this.currentMap, this.state.quality, r, this.state.imageFormat, this.state.compressTexture)});
+    this.formatDropdown = this.materialFolder.add(this.state, 'imageFormat', {'jpg': 'image/jpeg', 'png': 'image/png'}).listen().onChange((f) => {this.updateTexture(this.currentMap, this.state.quality, this.state.resolution, f, this.state.compressTexture)});;
     this.quality = this.materialFolder.add(this.state, 'quality', 0, 1, 0.01).min(0.01).listen();
-    this.quality.onFinishChange( (q) => this.updateTexture(this.currentMap, q, this.state.resolution, this.state.imageFormat));
+    this.quality.onFinishChange( (q) => this.updateTexture(this.currentMap, q, this.state.resolution, this.state.imageFormat, this.state.compressTexture));
 
-    this.originalFilesize = this.materialFolder.add(this.state, 'originalFilesize').name("Original size").listen();
-    this.originalFilesize.domElement.style.pointerEvents = "none"
-    this.originalFilesize.domElement.style.opacity = 1;
+    this.originalTextureFilesize = this.materialFolder.add(this.state, 'originalTextureFilesize').name("Original size").listen();
+    this.originalTextureFilesize.domElement.style.pointerEvents = "none"
+    this.originalTextureFilesize.domElement.style.opacity = 1;
 
-    this.newFilesize = this.materialFolder.add(this.state, 'newFilesize').name("New size").listen();
-    this.newFilesize.domElement.style.pointerEvents = "none";
-    this.newFilesize.domElement.style.opacity = 1;
+    this.newTextureFilesize = this.materialFolder.add(this.state, 'newTextureFilesize').name("Compressed size").listen();
+    this.newTextureFilesize.domElement.style.pointerEvents = "none";
+    this.newTextureFilesize.domElement.style.opacity = 1;
+
+    this.toggleCompression(false);
+
 
 
 
@@ -800,9 +894,23 @@ module.exports = class Viewer {
 
 
     // Export
-    this.exportFolder = gui.addFolder('Export');
+
+
+    this.exportFolder = gui.addFolder('Details');
+    this.exportFolder.open();
+    var exportBtn = { Export: () => { this.export() } };
+
+    this.originalFilesizeGui = this.exportFolder.add(this.state, 'originalFilesize').name("Original size").listen();
+    this.originalFilesizeGui.domElement.style.pointerEvents = "none"
+    this.originalFilesizeGui.domElement.style.opacity = 1;
+
+    this.newFilesizeGui = this.exportFolder.add(this.state, 'newFilesize').name("Approx new size").listen();
+    this.newFilesizeGui.domElement.style.pointerEvents = "none";
+    this.newFilesizeGui.domElement.style.opacity = 1;
+
+    this.exportFolder.add(exportBtn,'Export');
     this.exportFolder.domElement.addEventListener('click', () => {
-      this.export();
+     // this.export();
     });
 
     // Stats.
