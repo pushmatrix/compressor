@@ -826,7 +826,7 @@ module.exports = class Viewer {
 
     var toggleEl = (el, tag, on) => {
       var opacity = on ? 1 : 0.4;
-      var pointerEvents = on ? "inherit" : "none;"
+      var pointerEvents = on ? "inherit" : "none"
       var element = tag != "" ? el.domElement.getElementsByTagName(tag)[0] : el.domElement;
       element.style.opacity = opacity;
       element.style.pointerEvents = pointerEvents;
