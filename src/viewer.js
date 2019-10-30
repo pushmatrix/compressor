@@ -277,6 +277,7 @@ module.exports = class Viewer {
           const scene = gltf.scene || gltf.scenes[0];
           const clips = gltf.animations || [];
 
+        //  gltf.scenes[0].children[0].rotateY(-Math.PI /2);
           this.setContent(scene, clips);
           blobURLs.forEach(URL.revokeObjectURL);
 
@@ -704,6 +705,7 @@ module.exports = class Viewer {
   }
 
   updateDropdown(target, list){   
+
     var innerHTMLStr = "";
     for(var i=0; i<Object.keys(list).length; i++){
         var str = "<option value='" + list[Object.keys(list)[i]] + "'>" + Object.keys(list)[i] + "</option>";
@@ -774,6 +776,9 @@ module.exports = class Viewer {
          this.textureDropdownOptions[material.name][mapName] = material[map].uuid;
        }
       });
+      if (Object.entries(this.textureDropdownOptions[material.name]).length == 0) {
+        delete this.materialDropdownOptions[material.name];
+      }
     });
       
 
