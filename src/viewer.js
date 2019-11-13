@@ -50,6 +50,7 @@ module.exports = class Viewer {
     this.originalTextureFilesize = 0;
     this.originalTotalTextureFilesize = 0;
     this.originalTextureFilesizes = {};
+    this.mapCache = {};
     this.newTextureFilesizes = {};
     this.originalFilesize = 0;
 
@@ -226,6 +227,7 @@ module.exports = class Viewer {
     this.originalTotalTextureFilesize = 0;
     this.originalTextureFilesizes = {};
     this.newTextureFilesizes = {};
+    this.mapCache = {};
     this.originalFilesize = 0;
 
     Array.from(assetMap).forEach(([path, file]) => {
@@ -277,8 +279,15 @@ module.exports = class Viewer {
           const scene = gltf.scene || gltf.scenes[0];
           const clips = gltf.animations || [];
 
-        //  gltf.scenes[0].children[0].rotateY(-Math.PI /2);
-          this.setContent(scene, clips);
+          //gltf.scenes[0].children[0].children[0].rotateY(Math.PI /2);
+         // gltf.scenes[0].children[0].children[1].rotateY(Math.PI /2);
+       //   var pivot = new THREE.Group();
+        //  pivot.rotateY(Math.PI/2);
+         // pivot.rotateZ(0.04);
+        //  pivot.position.y = 0.5;
+         // pivot.add(scene)
+         // this.setContent(pivot, clips);
+         this.setContent(scene, clips);
           blobURLs.forEach(URL.revokeObjectURL);
 
           
@@ -617,30 +626,27 @@ module.exports = class Viewer {
     }
   }
 
-  selectTexture(uuid) {
-    this.state.quality = this.textures[uuid].quality;
-    this.state.imageFormat = this.textures[uuid].imageFormat;
-    this.state.resolution = this.textures[uuid].resolution;
-    this.state.compressTexture = this.textures[uuid].compressTexture;
+  selectTexture(name) {
+    this.state.quality = this.textures[name].quality;
+    this.state.imageFormat = this.textures[name].imageFormat;
+    this.state.resolution = this.textures[name].resolution;
+    this.state.compressTexture = this.textures[name].compressTexture;
     this.state.originalTextureFilesize = '2 MB';
 
 
 
-    if (this.textures[uuid].sourceImage == null) {
-      this.textures[uuid].sourceImage = extractImageDataToCanvas(this.textures[uuid].textureReference.image);
+    if (this.textures[name].sourceImage == null) {
+      this.textures[name].sourceImage = extractImageDataToCanvas(this.textures[name].textureReference.image);
     }
 
     var o = document.getElementById('original-texture');
-    o.src = this.textures[uuid].sourceImage.toDataURL();
+    o.src = this.textures[name].sourceImage.toDataURL();
 
-    //var head = 'data:image/png;base64,';
-    //var imgFileSize = Math.round((this.textures[uuid].sourceImage.toDataURL().length - head.length)*3/4) ;
-    //console.log(imgFileSize);
 
     var availableResolutions = {}
     var resolutions = [128, 256, 512, 1024, 2048, 4096];
     for (var i = 0; i < resolutions.length; i++) {
-      if (resolutions[i] <= this.textures[uuid].originalResolution) {
+      if (resolutions[i] <= this.textures[name].originalResolution) {
         availableResolutions[resolutions[i]] = resolutions[i];
       }
     }
@@ -648,42 +654,42 @@ module.exports = class Viewer {
     this.updateDropdown(this.resolutionDropdown, availableResolutions);
 
     this.toggleCompression(this.state.compressTexture);
-    this.updateTexture(uuid, this.state.quality, this.state.resolution, this.state.imageFormat, this.state.compressTexture);
+    this.updateTexture(name, this.state.quality, this.state.resolution, this.state.imageFormat, this.state.compressTexture);
   }
 
 
-  updateTexture(uuid, quality, resolution, format, compressTexture) {
-    this.state.quality = this.textures[uuid].quality = quality;
-    this.state.resolution = this.textures[uuid].resolution = resolution;
-    this.state.imageFormat = this.textures[uuid].imageFormat = format;
-    this.state.compressTexture = this.textures[uuid].compressTexture = compressTexture;
+  updateTexture(name, quality, resolution, format, compressTexture) {
+    this.state.quality = this.textures[name].quality = quality;
+    this.state.resolution = this.textures[name].resolution = resolution;
+    this.state.imageFormat = this.textures[name].imageFormat = format;
+    this.state.compressTexture = this.textures[name].compressTexture = compressTexture;
 
-    this.currentMap = uuid;
+    this.currentMap = name;
     var v = document.getElementById('current-texture');
-    var newSrc = downscaleCanvas(this.textures[uuid].sourceImage, resolution, format, quality);
+    var newSrc = downscaleCanvas(this.textures[name].sourceImage, resolution, format, quality);
 
-    this.state.originalTextureFilesize = (this.originalTextureFilesizes[this.textures[uuid].textureReference.name]/ 1000 / 1000).toFixed(3) + " MB";
+    this.state.originalTextureFilesize = (this.originalTextureFilesizes[this.textures[name].textureReference.name]/ 1000 / 1000).toFixed(3) + " MB";
 
     this.state.newTextureFilesize = (Math.round(newSrc.length * 1) / 1000 / 1000 * 3 / 4).toFixed(3) + " MB";
 
-    this.textures[uuid].textureReference.image.src = newSrc;
+    this.textures[name].textureReference.image.src = newSrc;
 
     // Store the format so when we are exporting we can know what format it is.
-    this.textures[uuid].textureReference.image.format = format;
-    this.textures[uuid].textureReference.image.quality = quality;
-    this.textures[uuid].textureReference.image.compressTexture = compressTexture;
-    this.textures[uuid].textureReference.needsUpdate = true;
+    this.textures[name].textureReference.image.format = format;
+    this.textures[name].textureReference.image.quality = quality;
+    this.textures[name].textureReference.image.compressTexture = compressTexture;
+    this.textures[name].textureReference.needsUpdate = true;
 
 
     this.newTextureFilesize.domElement.parentNode.style.display = this.state.compressTexture ? 'inherit' : 'none';
 
     if (this.state.compressTexture) {
       v.src = newSrc;
-      this.newTextureFilesizes[this.textures[uuid].textureReference.name] = newSrc.length * 3 / 4;
+      this.newTextureFilesizes[this.textures[name].textureReference.name] = newSrc.length * 3 / 4;
     } else {
       v.src = document.getElementById('original-texture').src;
-      this.textures[uuid].textureReference.image.src = v.src;
-      this.newTextureFilesizes[this.textures[uuid].textureReference.name] = this.originalTextureFilesizes[this.textures[uuid].textureReference.name];
+      this.textures[name].textureReference.image.src = v.src;
+      this.newTextureFilesizes[this.textures[name].textureReference.name] = this.originalTextureFilesizes[this.textures[name].textureReference.name];
     }
     
     this.updateTotalFilesize();
@@ -759,8 +765,16 @@ module.exports = class Viewer {
       MAP_NAMES.forEach( (map) => {
        if (material[ map ]) {
          material[map].image.originalImage = originalImg;
-         material[map].image.name = material[map].name;
-         this.textures[material[map].uuid] = { textureReference: material[map], quality: 0.92, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees', compressTexture: false };
+         var name = material[map].name + material[map].format;
+
+         if (this.mapCache[name]) {
+           material[map] = this.mapCache[name];
+         } else {
+          material[map].image.name = material[map].name;
+          this.mapCache[name] = material[map];
+         }
+
+         this.textures[name] = { textureReference: material[map], quality: 0.92, originalResolution: material[map].image.width, resolution: material[map].image.width, imageFormat: material[map].format == "1023" ? 'image/png': 'image/jpeg' , far:'bees', compressTexture: false };
          var mapName = map;
          if (map == "aoMap" || map == "roughnessMap" || map == "metalnessMap") {
            mapName = "ao / m / r"
@@ -773,7 +787,7 @@ module.exports = class Viewer {
            mapName = "normals"
          }
          
-         this.textureDropdownOptions[material.name][mapName] = material[map].uuid;
+         this.textureDropdownOptions[material.name][mapName] = name;
        }
       });
       if (Object.entries(this.textureDropdownOptions[material.name]).length == 0) {
