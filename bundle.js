@@ -72304,7 +72304,7 @@ module.exports = class Viewer {
       MAP_NAMES.forEach( (map) => {
        if (material[ map ]) {
          material[map].image.originalImage = originalImg;
-         var name = material[map].name + material[map].format;
+         var name = material[map].name.toString() + material[map].format.toString();
 
          if (this.mapCache[name]) {
            material[map] = this.mapCache[name];
